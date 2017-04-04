@@ -249,6 +249,27 @@ Session.prototype = {
     return this;
   },
 
+  intraframeRequest: function(options) {
+    var extraHeaders, body;
+
+    // Check RTCSession Status
+    if (this.status !== SIP.Session.C.STATUS_CONFIRMED &&
+        this.status !== SIP.Session.C.STATUS_WAITING_FOR_ACK) {
+          throw new SIP.Exceptions.InvalidStateError(this.status);
+        }
+
+    options = options || {};
+    extraHeaders = options.extraHeaders ? options.extraHeaders.slice() : [];
+
+    extraHeaders.push('Content-Type: application/media_control+xml');
+
+    this.request = this.dialog.sendRequest(SIP.C.INFO, {
+      body: options.body,
+      extraHeaders: extraHeaders
+    });
+    return this;
+  },
+
   followRefer: function followRefer (callback) {
     return function referListener (callback, request) {
       // open non-SIP URIs if possible and keep session open

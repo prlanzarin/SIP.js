@@ -71,7 +71,9 @@ RequestSender.prototype = {
       this.applicant.onDialogError(response);
     } else if (response.method === SIP.C.INVITE && response.status_code === 491) {
       if (this.reattempt) {
-        this.applicant.receiveResponse(response);
+        if(typeof this.applicant != 'undefined' && typeof this.applicant.receiveResponse == 'function') {
+          this.applicant.receiveResponse(response);
+        }
       } else {
         this.request.cseq.value = this.dialog.local_seqnum += 1;
         this.reattemptTimer = SIP.Timers.setTimeout(
@@ -85,7 +87,9 @@ RequestSender.prototype = {
         );
       }
     } else {
-      this.applicant.receiveResponse(response);
+      if(typeof this.applicant != 'undefined' && typeof this.applicant.receiveResponse == 'function') {
+        this.applicant.receiveResponse(response);
+      }
     }
   }
 };

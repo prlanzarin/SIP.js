@@ -482,9 +482,12 @@ IncomingRequest.prototype.reply = function(code, reason, extraHeaders, body, onS
     response += 'Content-Length: ' + 0 + '\r\n\r\n';
   }
 
+  if(this.server_transaction && typeof this.server_transaction.receiveResponse == 'function') {
   this.server_transaction.receiveResponse(code, response).then(onSuccess, onFailure);
-
   return response;
+  }
+  else
+    return '';
 };
 
 /**

@@ -340,6 +340,7 @@ UA.prototype.stop = function() {
    * 'accepted' state due to timers 'L' and 'M' defined in [RFC 6026]
    */
   if (this.nistTransactionsCount === 0 && this.nictTransactionsCount === 0) {
+    this.logger.log('Disconnecting transport');
     this.transport.disconnect();
   } else {
     this.on('transactionDestroyed', transactionsListener);

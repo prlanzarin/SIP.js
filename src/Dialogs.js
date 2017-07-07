@@ -113,8 +113,9 @@ Dialog.prototype = {
 
   terminate: function() {
     this.logger.log('dialog ' + this.id.toString() + ' deleted');
-    if (this.mediaHandler && this.state !== C.STATUS_CONFIRMED) {
-      this.mediaHandler.peerConnection.close();
+    if (this.mediaHandler && this.state !== C.STATUS_CONFIRMED && typeof this.mediaHandler.peerConnection != 'undefined') {
+      if(typeof this.mediaHandler.peerConnection.close == 'function')
+        this.mediaHandler.peerConnection.close();
     }
     delete this.owner.ua.dialogs[this.id.toString()];
   },

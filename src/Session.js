@@ -263,9 +263,10 @@ Session.prototype = {
 
     extraHeaders.push('Content-Type: application/media_control+xml');
 
-    this.request = this.dialog.sendRequest(SIP.C.INFO, {
+    this.sendRequest(SIP.C.INFO, {
       body: options.body,
-      extraHeaders: extraHeaders
+      extraHeaders: extraHeaders,
+      receiveResponse: function() {}
     });
     return this;
   },

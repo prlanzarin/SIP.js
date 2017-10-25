@@ -24,6 +24,8 @@ SIP.C = require('./Constants')(SIP.name, SIP.version);
 SIP.Exceptions = require('./Exceptions');
 SIP.Timers = require('./Timers')(environment.timers);
 SIP.Transport = environment.Transport(SIP, environment.WebSocket);
+SIP.TransportUDP = environment.TransportUDP(SIP, environment.dgram);
+SIP.TransportTCP = environment.TransportTCP(SIP, environment.Socket);
 require('./Parser')(SIP);
 require('./SIPMessage')(SIP);
 require('./URI')(SIP);

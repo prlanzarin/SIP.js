@@ -28,7 +28,17 @@ var
 
 function buildViaHeader (request_sender, transport, id) {
   var via;
-  via = 'SIP/2.0/' + (request_sender.ua.configuration.hackViaTcp ? 'TCP' : transport.server.scheme);
+  var transportType;
+  switch (transport.transportType) {
+    case 'TCP':
+      transportType = 'TCP';
+      break;
+    case 'UDP':
+      transportType = 'UDP';
+    default:
+      transportType = transport.server.scheme
+  }
+  via = 'SIP/2.0/' + transportType;
   via += ' ' + request_sender.ua.configuration.viaHost + ';branch=' + id;
   if (request_sender.ua.configuration.forceRport) {
     via += ';rport';

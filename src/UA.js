@@ -359,7 +359,19 @@ UA.prototype.start = function() {
 
   this.logger.log('user requested startup...');
   if (this.status === C.STATUS_INIT) {
-    server = this.getNextWsServer();
+    switch (this.transportType) {
+      case 'UDP':
+        server = this.getUdpSession();
+        break;
+      case 'TCP':
+        //server = this.getTcpSocket();
+        break;
+      case 'WS':
+        new SIP.TransportUDP(this, null);
+        break;
+      default:
+        server = this.getNextWsServer();
+    }
     this.status = C.STATUS_STARTING;
     new SIP.Transport(this, server);
   } else if(this.status === C.STATUS_USER_CLOSED) {
@@ -583,16 +595,18 @@ UA.prototype.receiveRequest = function(request) {
     return uri && uri.user === request.ruri.user;
   }
 
-  // Check that request URI points to us
-  if(!(ruriMatches(this.configuration.uri) ||
-       ruriMatches(this.contact.uri) ||
-       ruriMatches(this.contact.pub_gruu) ||
-       ruriMatches(this.contact.temp_gruu))) {
-    this.logger.warn('Request-URI does not point to us');
-    if (request.method !== SIP.C.ACK) {
-      request.reply_sl(404);
+  if(this.transportType === 'WS') {
+    // Check that request URI points to us
+    if(!(ruriMatches(this.configuration.uri) ||
+          ruriMatches(this.contact.uri) ||
+          ruriMatches(this.contact.pub_gruu) ||
+          ruriMatches(this.contact.temp_gruu))) {
+      this.logger.warn('Request-URI does not point to us');
+      if (request.method !== SIP.C.ACK) {
+        request.reply_sl(404);
+      }
+      return;
     }
-    return;
   }
 
   // Check request URI scheme
@@ -915,7 +929,9 @@ UA.prototype.loadConfig = function(configuration) {
 
       authenticationFactory: checkAuthenticationFactory(function authenticationFactory (ua) {
         return new SIP.DigestAuthentication(ua);
-      })
+      }),
+
+      transportType: 'WS'
     };
 
   // Pre-Configuration
@@ -1042,33 +1058,66 @@ UA.prototype.loadConfig = function(configuration) {
     settings.contactTransport = 'wss';
   }
 
-  this.contact = {
-    pub_gruu: null,
-    temp_gruu: null,
-    uri: new SIP.URI('sip', SIP.Utils.createRandomToken(8), settings.viaHost, null, {transport: settings.contactTransport}),
-    toString: function(options){
-      options = options || {};
-
-      var
-        anonymous = options.anonymous || null,
-        outbound = options.outbound || null,
-        contact = '<';
-
-      if (anonymous) {
-        contact += (this.temp_gruu || ('sip:anonymous@anonymous.invalid;transport='+settings.contactTransport)).toString();
-      } else {
-        contact += (this.pub_gruu || this.uri).toString();
+  switch (settings.transportType) {
+    case 'UDP':
+      var port = 5060;
+      if(settings.uri.port) {
+        port = settings.uri.port;
       }
+      settings.viaHost = settings.uri.host;
+      settings.viaPort = port;
+      this.contact = {
+        pub_gruu: null,
+        temp_gruu: null,
+        uri: new SIP.URI('sip', settings.uri.user, settings.uri.host, port, {
+          transport: 'udp'
+        }),
+        toString: function(options) {
+          options = options || {};
+          var anonymous = options.anonymous || null,
+          outbound = options.outbound || null,
+          contact = '<' + this.uri.toString();
+          if (outbound) {
+            contact += ';ob';
+          }
+          contact += '>';
+          return contact;
+        }
+      };
+      break;
 
-      if (outbound) {
-        contact += ';ob';
+    case 'TCP':
+      break;
+
+    default:
+      this.contact = {
+        pub_gruu: null,
+        temp_gruu: null,
+        uri: new SIP.URI('sip', SIP.Utils.createRandomToken(8), settings.viaHost, null, {transport: settings.contactTransport}),
+        toString: function(options){
+          options = options || {};
+
+          var
+            anonymous = options.anonymous || null,
+          outbound = options.outbound || null,
+          contact = '<';
+
+          if (anonymous) {
+            contact += (this.temp_gruu || ('sip:anonymous@anonymous.invalid;transport='+settings.contactTransport)).toString();
+          } else {
+            contact += (this.pub_gruu || this.uri).toString();
+          }
+
+          if (outbound) {
+            contact += ';ob';
+          }
+
+          contact += '>';
+
+          return contact;
+        };
       }
-
-      contact += '>';
-
-      return contact;
-    }
-  };
+  }
 
   // media overrides mediaConstraints
   SIP.Utils.optionsOverride(settings, 'media', 'mediaConstraints', true, this.logger);
@@ -1152,6 +1201,7 @@ UA.configuration_skeleton = (function() {
       "media",
       "mediaConstraints",
       "authenticationFactory",
+      "transportType",
 
       // Post-configuration generated parameters
       "via_core_value",
@@ -1591,7 +1641,13 @@ UA.configuration_check = {
       }
     },
 
-    authenticationFactory: checkAuthenticationFactory
+    authenticationFactory: checkAuthenticationFactory,
+
+    transportType: function(transportType) {
+      if (typeof transportType === 'string') {
+        return transportType.toUpperCase();
+      }
+    }
   }
 };
 

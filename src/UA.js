@@ -359,21 +359,25 @@ UA.prototype.start = function() {
 
   this.logger.log('user requested startup...');
   if (this.status === C.STATUS_INIT) {
-    switch (this.transportType) {
+    this.logger.log("Transport type is " + this.configuration.transportType);
+    switch (this.configuration.transportType) {
       case 'UDP':
-        server = this.getUdpSession();
+        new SIP.TransportUDP(this, null);
+        this.logger.log("New UDP transport created");
         break;
       case 'TCP':
+        new SIP.TransportTCP(this, null);
         //server = this.getTcpSocket();
         break;
       case 'WS':
-        new SIP.TransportUDP(this, null);
+        server = this.getNextWsServer();
+        new SIP.Transport(this, server);
         break;
       default:
         server = this.getNextWsServer();
+        new SIP.Transport(this, server);
     }
     this.status = C.STATUS_STARTING;
-    new SIP.Transport(this, server);
   } else if(this.status === C.STATUS_USER_CLOSED) {
     this.logger.log('resuming');
     this.status = C.STATUS_READY;

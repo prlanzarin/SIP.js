@@ -123,6 +123,7 @@ module.exports = function(SIP, WebSocket) {
      */
     connect: function() {
       var transport = this;
+      var self = this;
 
       this.server = dgram.createSocket('udp4');
 
@@ -134,6 +135,7 @@ module.exports = function(SIP, WebSocket) {
         transport.closed = false;
 
         // Trigger onTransportConnected callback
+        self.logger.log("UDP transport triggering connected callback");
         transport.ua.onTransportConnected(transport);
       });
 
@@ -143,6 +145,8 @@ module.exports = function(SIP, WebSocket) {
         });
       });
 
+      this.logger.log("UDP transport will listen into host:" + this.ua.configuration.uri.port +
+          " port:" + this.ua.configuration.uri.port);
       this.server.bind(this.ua.configuration.uri.port, this.ua.configuration.uri.host);
 
     },

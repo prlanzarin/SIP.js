@@ -931,7 +931,8 @@ UA.prototype.loadConfig = function(configuration) {
         return new SIP.DigestAuthentication(ua);
       }),
 
-      transportType: 'WS'
+      transportType: 'WS',
+      viaPort: "5060"
     };
 
   // Pre-Configuration
@@ -1202,6 +1203,7 @@ UA.configuration_skeleton = (function() {
       "mediaConstraints",
       "authenticationFactory",
       "transportType",
+      "viaPort",
 
       // Post-configuration generated parameters
       "via_core_value",
@@ -1646,6 +1648,12 @@ UA.configuration_check = {
     transportType: function(transportType) {
       if (typeof transportType === 'string') {
         return transportType.toUpperCase();
+      }
+    },
+
+    viaPort: function(viaPort) {
+      if (typeof viaPort === 'string') {
+        return viaPort;
       }
     }
   }

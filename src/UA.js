@@ -1115,7 +1115,7 @@ UA.prototype.loadConfig = function(configuration) {
           contact += '>';
 
           return contact;
-        };
+        }
       }
   }
 

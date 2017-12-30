@@ -9,7 +9,7 @@
  * @param {SIP.UA} ua
  * @param {Object} server ws_server Object
  */
-module.exports = function(SIP, WebSocket) {
+module.exports = function(SIP) {
   var Transport,
     dgram = require('dgram'),
     C = {
@@ -20,12 +20,11 @@ module.exports = function(SIP, WebSocket) {
     };
 
   Transport = function(ua, server) {
-
     this.logger = ua.getLogger('sip.transport');
     this.ua = ua;
     this.ws = null;
     this.server = server;
-    this.client = null;
+    this.clients = {};
     this.reconnection_attempts = 0;
     this.closed = false;
     this.connected = false;
@@ -46,7 +45,8 @@ module.exports = function(SIP, WebSocket) {
      */
     send: function(msg) {
 
-      var sendToHost = null, sendToPort = 5060, parsedMsg;
+      var sendToHost = null, callId = null, fromTag = null, sendToPort = 5060,
+        parsedMsg;
 
       if(typeof msg === 'string') {
         // parse message
@@ -80,24 +80,27 @@ module.exports = function(SIP, WebSocket) {
         parsedMsg = msg.toString();
       }
 
-      if(parsedMsg.via) {
-        // use via to send
-        if(parsedMsg.via.host) {
-          sendToHost = parsedMsg.via.host;
-        }
-        if(parsedMsg.via.port) {
-          sendToPort = parsedMsg.via.port;
+      if (parsedMsg) {
+        callId = parsedMsg.call_id;
+        fromTag = parsedMsg.from_tag;
+      }
+
+      if(callId && fromTag) {
+        var client = this.clients[callId + fromTag];
+        if (client) {
+          sendToHost = client.address;
+          sendToPort = client.port;
         }
       }
 
-      if(parsedMsg.from && parsedMsg.from.uri && parsedMsg.from.uri.port) {
+      if(!sendToPort && parsedMsg.from && parsedMsg.from.uri &&
+        parsedMsg.from.uri.port) {
         sendToPort = parsedMsg.from.uri.port;
       }
 
-      if(!sendToHost) {
-        if(parsedMsg.from && parsedMsg.from.uri && parsedMsg.from.uri.host) {
-          sendToHost = parsedMsg.from.uri.host;
-        }
+      if(!sendToHost && parsedMsg.from && parsedMsg.from.uri &&
+        parsedMsg.from.uri.host) {
+        sendToHost = parsedMsg.from.uri.host;
       }
 
       var parsedMsgToString = parsedMsg.toString();
@@ -128,7 +131,6 @@ module.exports = function(SIP, WebSocket) {
       this.server = dgram.createSocket('udp4');
 
       this.server.on('listening', function() {
-        transport.client = transport.server;
         transport.connected = true;
 
         // Disable closed
@@ -139,9 +141,10 @@ module.exports = function(SIP, WebSocket) {
         transport.ua.onTransportConnected(transport);
       });
 
-      this.server.on('message', function(msg) {
+      this.server.on('message', function(msg, remote) {
         transport.onMessage({
-          data: msg
+          data: msg,
+          remote: remote
         });
       });
 
@@ -159,7 +162,8 @@ module.exports = function(SIP, WebSocket) {
      */
     onMessage: function(e) {
       var message, transaction,
-        data = e.data;
+        data = e.data,
+        remote = e.remote;
 
       // CRLF Keep Alive response from server. Ignore it.
       if (data === '\r\n') {
@@ -198,6 +202,32 @@ module.exports = function(SIP, WebSocket) {
       if (SIP.sanityCheck(message, this.ua, this)) {
         if (message instanceof SIP.IncomingRequest) {
           message.transport = this;
+          switch (message.method) {
+            case SIP.C.INVITE:
+              var client = this.clients[message.call_id + message.from_tag];
+
+              if (!client) {
+                this.clients[message.call_id + message.from_tag] = remote;
+              }
+            break;
+            case SIP.C.BYE:
+              var client = this.clients[message.call_id + message.from_tag];
+
+              if (client) {
+                var session = this.ua.findSession(message);
+
+                if (session) {
+                  session.on('terminated', function () {
+                    delete message.transport.clients[message.call_id +
+                      message.from_tag];
+                  });
+                }
+              }
+            break;
+            default:
+            break;
+          }
+
           this.ua.receiveRequest(message);
         } else if (message instanceof SIP.IncomingResponse) {
           /* Unike stated in 18.1.2, if a response does not match

@@ -9,8 +9,6 @@
  * @param {SIP.UA} ua
  * @param {Object} server ws_server Object
  */
-
-let udpAddrs = {};
 module.exports = function(SIP, WebSocket) {
   var Transport,
     dgram = require('dgram'),
@@ -64,18 +62,18 @@ module.exports = function(SIP, WebSocket) {
           // All outgoing requests have URIs...
           // But if there is a Route header then we need to use that instead of the RURI
 
-        //  var routeHdr = msg.getHeader('Route');
-        //  if(routeHdr !== undefined) {
-        //    // remove < and >
-        //    var route = routeHdr.replace('<', '').replace('>', '');
+          var routeHdr = msg.getHeader('Route');
+          if(routeHdr !== undefined) {
+            // remove < and >
+            var route = routeHdr.replace('<', '').replace('>', '');
 
-        //    var routeUri = SIP.URI.parse(route);
-        //    sendToHost = routeUri.host;
-        //    sendToPort = routeUri.port || 5060;
-        //  } else {
-        //    sendToHost = msg.ruri.host;
-        //    sendToPort = msg.ruri.port || 5060;
-        //  }
+            var routeUri = SIP.URI.parse(route);
+            sendToHost = routeUri.host;
+            sendToPort = routeUri.port || 5060;
+          } else {
+            sendToHost = msg.ruri.host;
+            sendToPort = msg.ruri.port || 5060;
+          }
 
         }
 
@@ -84,22 +82,22 @@ module.exports = function(SIP, WebSocket) {
 
       if(parsedMsg.via) {
         // use via to send
-        //if(parsedMsg.via.host) {
-        //  sendToHost = parsedMsg.via.host;
-        //}
-        //if(parsedMsg.via.port) {
-        //  sendToPort = parsedMsg.via.port;
-        //}
+        if(parsedMsg.via.host) {
+          sendToHost = parsedMsg.via.host;
+        }
+        if(parsedMsg.via.port) {
+          sendToPort = parsedMsg.via.port;
+        }
       }
 
       if(parsedMsg.from && parsedMsg.from.uri && parsedMsg.from.uri.port) {
-        //sendToPort = parsedMsg.from.uri.port;
+        sendToPort = parsedMsg.from.uri.port;
       }
 
       if(!sendToHost) {
-        //if(parsedMsg.from && parsedMsg.from.uri && parsedMsg.from.uri.host) {
-        //  sendToHost = parsedMsg.from.uri.host;
-        //}
+        if(parsedMsg.from && parsedMsg.from.uri && parsedMsg.from.uri.host) {
+          sendToHost = parsedMsg.from.uri.host;
+        }
       }
 
       var parsedMsgToString = parsedMsg.toString();
@@ -109,9 +107,6 @@ module.exports = function(SIP, WebSocket) {
       }
 
       var msgToSend = new Buffer(parsedMsgToString);
-      const rinfo = udpAddrs[parsedMsg.headers['Call-ID'][0].raw];
-      sendToHost = rinfo.address;
-      sendToPort = rinfo.port;
 
       this.server.send(msgToSend, 0, msgToSend.length, sendToPort, sendToHost, function(err) {
         if (err) {
@@ -144,10 +139,9 @@ module.exports = function(SIP, WebSocket) {
         transport.ua.onTransportConnected(transport);
       });
 
-      this.server.on('message', function(msg, rinfo) {
+      this.server.on('message', function(msg) {
         transport.onMessage({
-          data: msg,
-          rinfo: rinfo
+          data: msg
         });
       });
 
@@ -164,7 +158,7 @@ module.exports = function(SIP, WebSocket) {
      * @param {event} e
      */
     onMessage: function(e) {
-      var callId, message, transaction, rinfo = e.rinfo,
+      var message, transaction,
         data = e.data;
 
       // CRLF Keep Alive response from server. Ignore it.
@@ -194,12 +188,6 @@ module.exports = function(SIP, WebSocket) {
 
       if (!message) {
         return;
-      }
-
-      // Index origin address to respond to transactions later
-      callId = message.headers? message.headers['Call-ID'][0].raw : null;
-      if (callId) {
-        udpAddrs[callId] = rinfo;
       }
 
       if (this.ua.status === SIP.UA.C.STATUS_USER_CLOSED && message instanceof SIP.IncomingRequest) {

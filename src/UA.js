@@ -907,6 +907,9 @@ UA.prototype.loadConfig = function(configuration) {
       stunServers: ['stun:stun.l.google.com:19302'],
       turnServers: [],
 
+      // Public ip address
+      publicIpAddress: null,
+
       // Logging parameters
       traceSip: false,
 
@@ -1074,8 +1077,9 @@ UA.prototype.loadConfig = function(configuration) {
       this.contact = {
         pub_gruu: null,
         temp_gruu: null,
-        uri: new SIP.URI('sip', settings.uri.user, settings.uri.host, port, {
-          transport: 'udp'
+        uri: new SIP.URI('sip', settings.uri.user, settings.publicIpAddress ||
+          settings.uri.host, port, {
+            transport: 'udp'
         }),
         toString: function(options) {
           options = options || {};
@@ -1208,6 +1212,7 @@ UA.configuration_skeleton = (function() {
       "authenticationFactory",
       "transportType",
       "viaPort",
+      "publicIpAddress",
 
       // Post-configuration generated parameters
       "via_core_value",
@@ -1583,6 +1588,12 @@ UA.configuration_check = {
         }
       }
       return turnServers;
+    },
+
+    publicIpAddress: function (publicIpAddress) {
+      if (typeof publicIpAddress === 'string') {
+        return publicIpAddress;
+      }
     },
 
     userAgentString: function(userAgentString) {

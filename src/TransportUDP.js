@@ -148,7 +148,7 @@ module.exports = function(SIP) {
         });
       });
 
-      this.logger.log("UDP transport will listen into host:" + this.ua.configuration.uri.port +
+      this.logger.log("UDP transport will listen into host:" + this.ua.configuration.uri.host +
           " port:" + this.ua.configuration.uri.port);
       this.server.bind(this.ua.configuration.uri.port, this.ua.configuration.uri.host);
 

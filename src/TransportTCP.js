@@ -175,7 +175,7 @@ Transport.prototype = {
       transport.ua.onTransportConnected(transport);
     });
 
-    this.logger.log("TCP transport will listen into host:" + this.ua.configuration.uri.port +
+    this.logger.log("TCP transport will listen into host:" + this.ua.configuration.uri.host +
         " port:" + this.ua.configuration.uri.port);
     this.server.listen(this.ua.configuration.uri.port, this.ua.configuration.uri.host);
   },

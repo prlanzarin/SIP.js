@@ -367,7 +367,6 @@ UA.prototype.start = function() {
         break;
       case 'TCP':
         new SIP.TransportTCP(this, null);
-        //server = this.getTcpSocket();
         break;
       case 'WS':
         server = this.getNextWsServer();
@@ -1096,6 +1095,31 @@ UA.prototype.loadConfig = function(configuration) {
       break;
 
     case 'TCP':
+      var port = 5060;
+      if(settings.uri.port) {
+        port = settings.uri.port;
+      }
+      settings.viaHost = settings.uri.host;
+      settings.viaPort = port;
+      this.contact = {
+        pub_gruu: null,
+        temp_gruu: null,
+        uri: new SIP.URI('sip', settings.uri.user, settings.publicIpAddress ||
+          settings.uri.host, port, {
+            transport: 'tcp'
+        }),
+        toString: function(options) {
+          options = options || {};
+          var anonymous = options.anonymous || null,
+          outbound = options.outbound || null,
+          contact = '<' + this.uri.toString();
+          if (outbound) {
+            contact += ';ob';
+          }
+          contact += '>';
+          return contact;
+        }
+      };
       break;
 
     default:

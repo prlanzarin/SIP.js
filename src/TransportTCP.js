@@ -1,4 +1,5 @@
 "use strict";
+const net = require('net');
 /**
  * @fileoverview Transport
  */
@@ -57,13 +58,17 @@ Transport.prototype = {
    * @returns {Boolean}
    */
   send: function(msg) {
-    var message = msg.toString();
-
+    const message = msg.toString();
     if(this.tcp) {
       if (this.ua.configuration.traceSip === true) {
         this.logger.log('sending TCP message:\n\n' + message + '\n');
       }
-      this.tcp.write(message);
+      this.tcp.write(message, (e) => {
+        if (e) {
+          this.logger.warn('unable to send TCP message with error', err);
+          return false;
+        }
+      });
       return true;
     } else {
       this.logger.warn('unable to send message, TCP is not open');
@@ -142,43 +147,35 @@ Transport.prototype = {
   */
   connect: function() {
     var transport = this;
-
-    if(this.tcp) {
-      this.logger.log('TCP' + this.server.ws_uri + ' is already connected');
-      return false;
-    }
-
-    if(this.ws) {
-      this.ws.close();
-    }
-
-    this.logger.log('connecting to TCP server' + this.server.ws_uri);
+    this.logger.log('connecting to TCP server');
     this.ua.onTransportConnecting(this,
       (this.reconnection_attempts === 0)?1:this.reconnection_attempts);
 
-    try {
-      this.ws = new Socket(this.server.ws_uri, 'sip');
-    } catch(e) {
-      this.logger.warn('error connecting to TCP server ' + this.server.ws_uri + ': ' + e);
-    }
+    this.server = net.createServer((socket) => {
+      try {
+        this.tcp = socket;
+      } catch(e) {
+        this.logger.warn('error connecting to TCP server ' + this.server.ws_uri + ': ' + e);
+      }
 
-    this.ws.binaryType = 'arraybuffer';
+      this.tcp.on('end', function(e) {
+        transport.onClose(e);
+      });
 
-    this.ws.onopen = function() {
-      transport.onOpen();
-    };
+      // TODO parse length info and compose stream if it exceeds
+      this.tcp.on('data', function(e) {
+        let msg = e.toString();
+        transport.onMessage(msg);
+      });
+    });
 
-    this.ws.onclose = function(e) {
-      transport.onClose(e);
-    };
+    this.server.on('listening', () => {
+      transport.connected = true;
+      transport.closed = false;
+      transport.ua.onTransportConnected(transport);
+    });
 
-    this.ws.onmessage = function(e) {
-      transport.onMessage(e);
-    };
-
-    this.ws.onerror = function(e) {
-      transport.onError(e);
-    };
+    this.server.listen(5060);
   },
 
   // Transport Event Handlers
@@ -254,9 +251,8 @@ Transport.prototype = {
   * @event
   * @param {event} e
   */
-  onMessage: function(e) {
-    var message, transaction,
-      data = e.data;
+  onMessage: function(data) {
+    var message, transaction;
 
     // CRLF Keep Alive response from server. Ignore it.
     if(data === '\r\n') {
@@ -342,27 +338,28 @@ Transport.prototype = {
 
   /**
   * Reconnection attempt logic.
+  * TODO revisit this garbage
   * @private
   */
   reconnect: function() {
     var transport = this;
 
-    this.reconnection_attempts += 1;
+    //this.reconnection_attempts += 1;
 
-    if(this.reconnection_attempts > this.ua.configuration.wsServerMaxReconnection) {
-      this.logger.warn('maximum reconnection attempts for TCP ' + this.server.ws_uri);
-      this.ua.onTransportError(this);
-    } else if (this.reconnection_attempts === 1) {
-      this.logger.log('Connection to TCP ' + this.server.ws_uri + ' severed, attempting first reconnect');
-      transport.connect();
-    } else {
-      this.logger.log('trying to reconnect to TCP ' + this.server.ws_uri + ' (reconnection attempt ' + this.reconnection_attempts + ')');
+    //if(this.reconnection_attempts > this.ua.configuration.wsServerMaxReconnection) {
+    //  this.logger.warn('maximum reconnection attempts for TCP ' + this.server.ws_uri);
+    //  this.ua.onTransportError(this);
+    //} else if (this.reconnection_attempts === 1) {
+    //  this.logger.log('Connection to TCP ' + this.server.ws_uri + ' severed, attempting first reconnect');
+    //  transport.connect();
+    //} else {
+    //  this.logger.log('trying to reconnect to TCP ' + this.server.ws_uri + ' (reconnection attempt ' + this.reconnection_attempts + ')');
 
-      this.reconnectTimer = SIP.Timers.setTimeout(function() {
-        transport.connect();
-        transport.reconnectTimer = null;
-      }, this.ua.configuration.wsServerReconnectionTimeout * 1000);
-    }
+    //  this.reconnectTimer = SIP.Timers.setTimeout(function() {
+    //    transport.connect();
+    //    transport.reconnectTimer = null;
+    //  }, this.ua.configuration.wsServerReconnectionTimeout * 1000);
+    //}
   }
 };
 

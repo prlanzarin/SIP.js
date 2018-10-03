@@ -249,14 +249,14 @@ Session.prototype = {
     return this;
   },
 
-  intraframeRequest: function(options) {
+  info: function(options) {
     var extraHeaders, body;
 
     // Check RTCSession Status
     if (this.status !== SIP.Session.C.STATUS_CONFIRMED &&
         this.status !== SIP.Session.C.STATUS_WAITING_FOR_ACK) {
-          throw new SIP.Exceptions.InvalidStateError(this.status);
-        }
+      throw new SIP.Exceptions.InvalidStateError(this.status);
+    }
 
     options = options || {};
     extraHeaders = options.extraHeaders ? options.extraHeaders.slice() : [];
@@ -710,10 +710,10 @@ Session.prototype = {
                   }
                 }
               }
-
               new DTMF(this, tone, {duration: duration}).init_incoming(request);
-            } else {
-              request.reply(415, null, ["Accept: application/dtmf-relay"]);
+            }
+            else {
+              this.emit('incomingInfo', request);
             }
           }
         }

@@ -32,6 +32,7 @@ module.exports = function(SIP) {
     this.lastTransportError = {};
 
     this.ua.transport = this;
+    this.transportType = "UDP";
 
     // Connect
     this.connect();

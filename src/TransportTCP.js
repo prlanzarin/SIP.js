@@ -46,6 +46,7 @@ Transport = function(ua, server) {
   this.keepAliveTimer = null;
 
   this.ua.transport = this;
+  this.transportType = "TCP";
 
   // Connect
   this.connect();

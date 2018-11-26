@@ -250,8 +250,10 @@ Parser.parseMessage = function(data, ua) {
   if(message.hasHeader('content-length')) {
     contentLength = message.getHeader('content-length');
     message.body = data.substr(bodyStart, contentLength);
+    message.currentLength = parseInt(bodyStart) + parseInt(contentLength);
   } else {
     message.body = data.substring(bodyStart);
+    message.currentLength = parseInt(bodyStart);
   }
 
   return message;

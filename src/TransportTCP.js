@@ -34,6 +34,7 @@ Transport = function(ua, server) {
   this.logger = ua.getLogger('sip.transport');
   this.ua = ua;
   this.tcp = null;
+  this.sockets = {};
   this.server = server;
   this.reconnection_attempts = 0;
   this.closed = false;
@@ -60,20 +61,24 @@ Transport.prototype = {
    */
   send: function(msg) {
     const message = msg.toString();
-    if(this.tcp) {
-      if (this.ua.configuration.traceSip === true) {
-        this.logger.log('sending TCP message:\n\n' + message + '\n');
-      }
-      this.tcp.write(message, (e) => {
-        if (e) {
-          this.logger.warn('unable to send TCP message with error', err);
+    if (message) {
+      let callId = message.call_id;
+      let fromTag = message.from_tag;
+      if (callId && fromTag) {
+        let socket = this.socket[callId + fromTag];
+        if (socket) {
+          socket.write(message, (e) => {
+            if (e) {
+              this.logger.warn('unable to send TCP message with error', err);
+              return false;
+            }
+            return true;
+          });
+        } else {
+          this.logger.warn('unable to send message, TCP is not open');
           return false;
         }
-      });
-      return true;
-    } else {
-      this.logger.warn('unable to send message, TCP is not open');
-      return false;
+      }
     }
   },
 
@@ -153,20 +158,17 @@ Transport.prototype = {
       (this.reconnection_attempts === 0)?1:this.reconnection_attempts);
 
     this.server = net.createServer((socket) => {
-      try {
-        this.tcp = socket;
-      } catch(e) {
-        this.logger.warn('error connecting to TCP server ' + this.server.ws_uri + ': ' + e);
-      }
-
-      this.tcp.on('end', function(e) {
-        transport.onClose(e);
+      socket.on('end', function() {
+        transport.onClose(socket);
       });
 
       // TODO parse length info and compose stream if it exceeds
-      this.tcp.on('data', function(e) {
+      socket.on('data', function(e) {
         let msg = e.toString();
-        transport.onMessage(msg);
+        transport.onMessage({
+          data: msg,
+          socket
+        });
       });
     });
 
@@ -210,42 +212,12 @@ Transport.prototype = {
   * @event
   * @param {event} e
   */
-  onClose: function(e) {
-    var connected_before = this.connected;
-
-    this.lastTransportError.code = e.code;
-    this.lastTransportError.reason = e.reason;
-
+  onClose: function(socket) {
     this.stopSendingKeepAlives();
-
-    if (this.reconnection_attempts > 0) {
-      this.logger.log('Reconnection attempt ' + this.reconnection_attempts + ' failed (code: ' + e.code + (e.reason? '| reason: ' + e.reason : '') +')');
-      this.reconnect();
-    } else {
-      this.connected = false;
-      this.logger.log('TCP socket disconnected (code: ' + e.code + (e.reason? '| reason: ' + e.reason : '') +')');
-
-      if(e.wasClean === false) {
-        this.logger.warn('TCP socket abrupt disconnection');
-      }
-      // Transport was connected
-      if(connected_before === true) {
-        this.ua.onTransportClosed(this);
-        // Check whether the user requested to close.
-        if(!this.closed) {
-          this.reconnect();
-        } else {
-          this.ua.emit('disconnected', {
-            transport: this,
-            code: this.lastTransportError.code,
-            reason: this.lastTransportError.reason
-          });
-
-        }
-      } else {
-        // This is the first connection attempt
-        //Network error
-        this.ua.onTransportError(this);
+    if (socket.callIndex) {
+      this.logger.log("TCP socket for connection", socket.callIndex, "ended");
+      if (this.sockets[socket.callIndex]) {
+        delete this.sockets[socket.callIndex];
       }
     }
   },
@@ -254,8 +226,10 @@ Transport.prototype = {
   * @event
   * @param {event} e
   */
-  onMessage: function(data) {
+  onMessage: function(args) {
+    let { data, socket } = args;
     var message, transaction;
+
 
     // CRLF Keep Alive response from server. Ignore it.
     if(data === '\r\n') {
@@ -312,6 +286,13 @@ Transport.prototype = {
         */
         switch(message.method) {
           case SIP.C.INVITE:
+            let socket = this.sockets[message.call_id + message.from_tag];
+
+            if (socket == null) {
+              socket.callIndex = message.call_id + message.from_tag;
+              this.sockets[message.call_id + message.from_tag] = socket;
+            }
+
             transaction = this.ua.transactions.ict[message.via_branch];
             if(transaction) {
               transaction.receiveResponse(message);
@@ -319,6 +300,18 @@ Transport.prototype = {
             break;
           case SIP.C.ACK:
             // Just in case ;-)
+            break;
+          case SIP.C.BYE:
+            let socket = this.sockets[message.call_id + message.from_tag];
+            if (socket) {
+              let session = this.ua.findSession(message);
+
+              if (session) {
+                session.on('terminated', () => {
+                  //delete message.transport.sockets[message.call_id + message.from_tag];
+                });
+              }
+            }
             break;
           default:
             transaction = this.ua.transactions.nict[message.via_branch];

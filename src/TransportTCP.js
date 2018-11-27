@@ -66,7 +66,7 @@ Transport.prototype = {
       let callId = parsedMsg.call_id;
       let fromTag = parsedMsg.from_tag;
       if (callId && fromTag) {
-        let socket = this.socket[callId + fromTag];
+        let socket = this.sockets[callId + fromTag];
         if (socket) {
           socket.write(message, (e) => {
             if (e) {
@@ -296,6 +296,16 @@ Transport.prototype = {
       if(SIP.sanityCheck(message, this.ua, this)) {
         if(message instanceof SIP.IncomingRequest) {
           message.transport = this;
+          switch (message.method) {
+            case SIP.C.INVITE:
+              if (this.sockets[message.call_id + message.from_tag] == null) {
+                socket.callIndex = message.call_id + message.from_tag;
+                this.sockets[message.call_id + message.from_tag] = socket;
+              }
+              break;
+            default:
+              break;
+          }
           this.ua.receiveRequest(message);
         } else if(message instanceof SIP.IncomingResponse) {
           /* Unike stated in 18.1.2, if a response does not match
@@ -304,10 +314,6 @@ Transport.prototype = {
            */
           switch(message.method) {
             case SIP.C.INVITE:
-              if (this.sockets[message.call_id + message.from_tag] == null) {
-                socket.callIndex = message.call_id + message.from_tag;
-                this.sockets[message.call_id + message.from_tag] = socket;
-              }
 
               transaction = this.ua.transactions.ict[message.via_branch];
               if(transaction) {

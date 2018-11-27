@@ -76,8 +76,8 @@ Transport.prototype = {
             if (this.ua.configuration.traceSip === true) {
               this.logger.log('sent TCP message:\n\n' + message + '\n');
             }
-            return true;
           });
+          return true;
         } else {
           this.logger.warn('unable to send message, TCP is not open');
           return false;

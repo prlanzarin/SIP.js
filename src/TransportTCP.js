@@ -241,6 +241,7 @@ Transport.prototype = {
         pendingSegments = `${pendingSegments}${s}`;
       });
       socket.pendingSegments = [];
+      pendingSegments = pendingSegments.trim();
       data = `${pendingSegments}${data}`;
     }
 

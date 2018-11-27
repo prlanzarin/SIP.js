@@ -162,6 +162,7 @@ Transport.prototype = {
       (this.reconnection_attempts === 0)?1:this.reconnection_attempts);
 
     this.server = net.createServer((socket) => {
+      socket.pendingSegments = [];
       socket.on('end', function() {
         transport.onClose(socket);
       });
@@ -234,6 +235,14 @@ Transport.prototype = {
     let { data, socket } = args;
     var messages = [], transaction;
 
+    if (socket.pendingSegments.length > 0) {
+      let pendingSegments = '';
+      socket.pendingSegments.forEach(s => {
+        pendingSegments = `${pendingSegments}${s}`;
+      });
+      socket.pendingSegments = [];
+      data = `${pendingSegments}${data}`;
+    }
 
     // CRLF Keep Alive response from server. Ignore it.
     if(data === '\r\n') {
@@ -277,7 +286,8 @@ Transport.prototype = {
         return;
       }
 
-      if (fragment == null) {
+      if (fragment == null && data.length > 0) {
+        socket.pendingSegments.push(data);
         endOfStream = true;
         break;
       }

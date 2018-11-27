@@ -61,9 +61,10 @@ Transport.prototype = {
    */
   send: function(msg) {
     const message = msg.toString();
+    const parsedMsg = SIP.Parser.parseMessage(msg, this.ua);
     if (message) {
-      let callId = message.call_id;
-      let fromTag = message.from_tag;
+      let callId = parsedMsg.call_id;
+      let fromTag = parsedMsg.from_tag;
       if (callId && fromTag) {
         let socket = this.socket[callId + fromTag];
         if (socket) {
@@ -71,6 +72,9 @@ Transport.prototype = {
             if (e) {
               this.logger.warn('unable to send TCP message with error', err);
               return false;
+            }
+            if (this.ua.configuration.traceSip === true) {
+              this.logger.log('sent TCP message:\n\n' + message + '\n');
             }
             return true;
           });

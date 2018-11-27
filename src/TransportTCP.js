@@ -228,7 +228,7 @@ Transport.prototype = {
   */
   onMessage: function(args) {
     let { data, socket } = args;
-    var message, transaction;
+    var messages = [], transaction;
 
 
     // CRLF Keep Alive response from server. Ignore it.
@@ -264,29 +264,42 @@ Transport.prototype = {
       }
     }
 
-    message = SIP.Parser.parseMessage(data, this.ua);
+    let endOfStream = false;
+    while (!endOfStream) {
+      let fragment;
+      fragment = SIP.Parser.parseMessage(data, this.ua);
+      if(this.ua.status === SIP.UA.C.STATUS_USER_CLOSED && fragment instanceof SIP.IncomingRequest) {
+        endOfStream = true;
+        return;
+      }
 
-    if (!message) {
-      return;
+      if (fragment == null) {
+        endOfStream = true;
+        break;
+      }
+
+      if (fragment) {
+        messages.push(fragment);
+        data = data.slice(fragment.currentLength);
+      }
+      if (data.length === 0) {
+        endOfStream = true;
+      }
     }
 
-    if(this.ua.status === SIP.UA.C.STATUS_USER_CLOSED && message instanceof SIP.IncomingRequest) {
-      return;
-    }
-
-    // Do some sanity check
-    if(SIP.sanityCheck(message, this.ua, this)) {
-      if(message instanceof SIP.IncomingRequest) {
-        message.transport = this;
-        this.ua.receiveRequest(message);
-      } else if(message instanceof SIP.IncomingResponse) {
-        /* Unike stated in 18.1.2, if a response does not match
-        * any transaction, it is discarded here and no passed to the core
-        * in order to be discarded there.
-        */
-        switch(message.method) {
-          case SIP.C.INVITE:
-            let socket = this.sockets[message.call_id + message.from_tag];
+    messages.forEach(message => {
+      // Do some sanity check
+      if(SIP.sanityCheck(message, this.ua, this)) {
+        if(message instanceof SIP.IncomingRequest) {
+          message.transport = this;
+          this.ua.receiveRequest(message);
+        } else if(message instanceof SIP.IncomingResponse) {
+          /* Unike stated in 18.1.2, if a response does not match
+           * any transaction, it is discarded here and no passed to the core
+           * in order to be discarded there.
+           */
+          switch(message.method) {
+              let socket = this.sockets[message.call_id + message.from_tag];
 
             if (socket == null) {
               socket.callIndex = message.call_id + message.from_tag;
@@ -313,15 +326,16 @@ Transport.prototype = {
               }
             }
             break;
-          default:
-            transaction = this.ua.transactions.nict[message.via_branch];
-            if(transaction) {
-              transaction.receiveResponse(message);
-            }
-            break;
+            default:
+              transaction = this.ua.transactions.nict[message.via_branch];
+              if(transaction) {
+                transaction.receiveResponse(message);
+              }
+              break;
+          }
         }
       }
-    }
+    });
   },
 
   /**

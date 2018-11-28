@@ -167,7 +167,14 @@ Transport.prototype = {
         transport.onClose(socket);
       });
 
-      // TODO parse length info and compose stream if it exceeds
+      socket.on('error', function (e) {
+        this.logger.log("TCP socket returned error " + e + " and will close");
+      });
+
+      socket.on('close', function (hadError) {
+        transport.onClose(socket);
+      });
+
       socket.on('data', function(e) {
         let msg = e.toString();
         transport.onMessage({
@@ -220,7 +227,7 @@ Transport.prototype = {
   onClose: function(socket) {
     this.stopSendingKeepAlives();
     if (socket.callIndex) {
-      this.logger.log("TCP socket for connection", socket.callIndex, "ended");
+      this.logger.log("TCP socket ended for connection" + socket.callIndex);
       if (this.sockets[socket.callIndex]) {
         delete this.sockets[socket.callIndex];
       }

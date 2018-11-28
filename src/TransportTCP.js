@@ -293,6 +293,13 @@ Transport.prototype = {
         break;
       }
 
+      if (SIP.Utils.str_utf8_length(fragment.body) < fragment.getHeader('content-length')) {
+        socket.pendingSegments.push(data);
+        endOfStream = true;
+        break;
+      }
+
+
       if (fragment) {
         messages.push(fragment);
         data = data.slice(fragment.currentLength);

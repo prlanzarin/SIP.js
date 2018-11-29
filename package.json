@@ -50,7 +50,7 @@
     "test": "grunt travis --verbose"
   },
   "dependencies": {
-    "ws": "^0.6.4"
+    "ws": "^6.1.2"
   },
   "optionalDependencies": {
     "promiscuous": "^0.6.0"

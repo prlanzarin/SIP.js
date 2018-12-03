@@ -163,6 +163,7 @@ Transport.prototype = {
 
     this.server = net.createServer((socket) => {
       socket.pendingSegments = [];
+      socket.setKeepAlive(true);
       socket.on('end', function() {
         transport.onClose(socket);
       });

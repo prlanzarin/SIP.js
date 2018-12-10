@@ -61,12 +61,17 @@ Transport.prototype = {
    */
   send: function(msg) {
     const message = msg.toString();
-    const parsedMsg = SIP.Parser.parseMessage(msg, this.ua);
+    const parsedMsg = SIP.Parser.parseMessage(message, this.ua);
     if (message) {
       let callId = parsedMsg.call_id;
-      let fromTag = parsedMsg.from_tag;
-      if (callId && fromTag) {
-        let socket = this.sockets[callId + fromTag];
+      let callTag;
+      if(msg instanceof SIP.OutgoingRequest) {
+        callTag = parsedMsg.to_tag;
+      } else {
+        callTag = parsedMsg.from_tag;
+      }
+      if (callId && callTag) {
+        let socket = this.sockets[callId + callTag];
         if (socket) {
           socket.write(message, (e) => {
             if (e) {

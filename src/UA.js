@@ -909,6 +909,9 @@ UA.prototype.loadConfig = function(configuration) {
       // Public ip address
       publicIpAddress: null,
 
+      // Legacy transport bind host
+      bindIpAddress: null,
+
       // Logging parameters
       traceSip: false,
 
@@ -1237,6 +1240,7 @@ UA.configuration_skeleton = (function() {
       "transportType",
       "viaPort",
       "publicIpAddress",
+      "bindIpAddress",
 
       // Post-configuration generated parameters
       "via_core_value",
@@ -1617,6 +1621,12 @@ UA.configuration_check = {
     publicIpAddress: function (publicIpAddress) {
       if (typeof publicIpAddress === 'string') {
         return publicIpAddress;
+      }
+    },
+
+    bindIpAddress : function (bindIpAddress) {
+      if (typeof bindIpAddress === 'string') {
+        return bindIpAddress;
       }
     },
 

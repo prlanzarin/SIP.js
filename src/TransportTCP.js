@@ -75,7 +75,7 @@ Transport.prototype = {
         if (socket) {
           socket.write(message, (e) => {
             if (e) {
-              this.logger.warn('unable to send TCP message with error', err);
+              this.logger.warn('unable to send TCP message with error', e);
               return false;
             }
             if (this.ua.configuration.traceSip === true) {
@@ -84,8 +84,8 @@ Transport.prototype = {
           });
           return true;
         } else {
-          this.logger.warn('unable to send message, TCP is not open');
-          return false;
+          this.logger.warn('unable to send message, TCP socket does not exist');
+          return true;
         }
       }
     }
@@ -173,13 +173,17 @@ Transport.prototype = {
         transport.onClose(socket);
       });
 
-      socket.on('error', function (e) {
+      const onSocketError = (e) => {
         this.logger.log("TCP socket returned error " + e + " and will close");
-      });
+        if (socket.callIndex) {
+          //this.logger.log("TCP socket ended for connection" + socket.callIndex);
+          if (this.sockets[socket.callIndex]) {
+            delete this.sockets[socket.callIndex];
+          }
+        }
+      }
 
-      socket.on('close', function (hadError) {
-        transport.onClose(socket);
-      });
+      socket.on('error', onSocketError.bind(this));
 
       socket.on('data', function(e) {
         let msg = e.toString();
@@ -232,12 +236,11 @@ Transport.prototype = {
   */
   onClose: function(socket) {
     this.stopSendingKeepAlives();
-    if (socket.callIndex) {
-      this.logger.log("TCP socket ended for connection" + socket.callIndex);
-      if (this.sockets[socket.callIndex]) {
-        delete this.sockets[socket.callIndex];
-      }
-    }
+    this.ua.emit('disconnected', {
+      transport: this,
+      code: "",
+      reason: ""
+    });
   },
 
   /**

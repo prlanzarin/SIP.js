@@ -38,9 +38,6 @@ RegisterContext = function (ua) {
 
   this.customClientContexts = {};
 
-  this.registrationTimer = null;
-  this.registrationExpiredTimer = null;
-
   // Set status
   this.registered = false;
 
@@ -62,26 +59,28 @@ RegisterContext.prototype.register = function (options = {}) {
 
   // Handle Options
   const { uri, binding } = options;
-  const needNewClientContext = !(binding == null);
+  const isCustomClientContext = !(binding == null);
 
-  if (needNewClientContext) {
-    const call_id = SIP.Utils.createRandomToken(22);
-    const params = {
-      to_uri: uri,
-      from_uri: uri,
-      to_displayName: binding,
-      from_displayName: binding,
-      call_id,
-      cseq: this.baseCseq,
-    };
+  if (isCustomClientContext) {
+    reqContext = this.customClientContexts[binding];
+    if (reqContext == null) {
+      const call_id = SIP.Utils.createRandomToken(22);
+      const params = {
+        to_uri: uri,
+        from_uri: uri,
+        to_displayName: binding,
+        from_displayName: binding,
+        call_id,
+        cseq: this.baseCseq,
+      };
 
-    const newClientContext = new SIP.ClientContext(this.ua, 'REGISTER', this.registrar, { params: params });
+      reqContext = new SIP.ClientContext(this.ua, 'REGISTER', this.registrar, { params: params });
 
-    newClientContext.cseq = this.baseCseq;
+      reqContext.cseq = this.baseCseq;
 
-    this.assignClientContextListeners(newClientContext);
-    this.customClientContexts[binding] = newClientContext;
-    reqContext = newClientContext;
+      this.assignClientContextListeners(reqContext);
+      this.customClientContexts[binding] = reqContext;
+    }
     registrationTag = binding;
   } else {
     this.options = options;
@@ -108,9 +107,9 @@ RegisterContext.prototype.register = function (options = {}) {
     }
 
     // Clear registration timer
-    if (this.registrationTimer !== null) {
-      SIP.Timers.clearTimeout(this.registrationTimer);
-      this.registrationTimer = null;
+    if (reqContext.registrationTimer !== null) {
+      clearTimeout(reqContext.registrationTimer);
+      reqContext.registrationTimer = null;
     }
 
     switch(true) {
@@ -124,9 +123,9 @@ RegisterContext.prototype.register = function (options = {}) {
           expires = response.getHeader('expires');
         }
 
-        if (this.registrationExpiredTimer !== null) {
-          SIP.Timers.clearTimeout(this.registrationExpiredTimer);
-          this.registrationExpiredTimer = null;
+        if (reqContext.registrationExpiredTimer !== null) {
+          clearTimeout(reqContext.registrationExpiredTimer);
+          reqContext.registrationExpiredTimer = null;
         }
 
         // Search the Contact pointing to us and update the expires value accordingly.
@@ -156,13 +155,14 @@ RegisterContext.prototype.register = function (options = {}) {
 
         // Re-Register before the expiration interval has elapsed.
         // For that, decrease the expires value. ie: 3 seconds
-        this.registrationTimer = SIP.Timers.setTimeout(function() {
-          self.registrationTimer = null;
+        reqContext.registrationTimer = setTimeout(() => {
+          reqContext.registrationTimer = null;
           self.register(options);
-        }, (expires * 1000) - 3000);
-        this.registrationExpiredTimer = SIP.Timers.setTimeout(function () {
-          self.logger.warn('registration expired');
-          if (self.registered) {
+        }, (expires * 1000) - 10000);
+
+        reqContext.registrationExpiredTimer = setTimeout(() => {
+          self.logger.warn('registration expired for');
+          if (reqContext.registered) {
             self.unregistered(null, SIP.C.causes.EXPIRES, registrationTag);
           }
         }, expires * 1000);
@@ -218,14 +218,30 @@ RegisterContext.prototype.registrationFailure = function (response, cause) {
 
 RegisterContext.prototype.onTransportClosed = function() {
   this.registered_before = this.registered;
-  if (this.registrationTimer !== null) {
-    SIP.Timers.clearTimeout(this.registrationTimer);
-    this.registrationTimer = null;
+
+  // Clear timeouts from custom contexts
+  const customContexts = Object.keys(this.customClientContexts);
+  customContexts.forEach(ctb => {
+    if (ctb.registrationTimer !== null) {
+      clearTimeout(ctb.registrationTimer);
+      ctb.registrationTimer = null;
+    }
+
+    if (ctb.registrationExpiredTimer !== null) {
+      clearTimeout(ctb.registrationExpiredTimer);
+      ctb.registrationExpiredTimer = null;
+    }
+  });
+
+  // Clear timeouts from the default main registration context
+  if (this.defaultClientContext.registrationTimer !== null) {
+    clearTimeout(this.defaultClientContext.registrationTimer);
+    this.defaultClientContext.registrationTimer = null;
   }
 
-  if (this.registrationExpiredTimer !== null) {
-    SIP.Timers.clearTimeout(this.registrationExpiredTimer);
-    this.registrationExpiredTimer = null;
+  if (this.defaultClientContext.registrationExpiredTimer !== null) {
+    clearTimeout(this.defaultClientContext.registrationExpiredTimer);
+    this.defaultClientContext.registrationExpiredTimer = null;
   }
 
   if(this.registered) {
@@ -282,9 +298,9 @@ RegisterContext.prototype.unregister = function(options) {
   }
 
   // Clear the registration timer.
-  if (this.registrationTimer !== null) {
-    SIP.Timers.clearTimeout(this.registrationTimer);
-    this.registrationTimer = null;
+  if (reqContext.registrationTimer !== null) {
+    clearTimeout(reqContext.registrationTimer);
+    reqContext.registrationTimer = null;
   }
 
   if(options.all) {
@@ -303,9 +319,9 @@ RegisterContext.prototype.unregister = function(options) {
         break;
       case /^2[0-9]{2}$/.test(response.status_code):
         this.emit('accepted', response);
-        if (this.registrationExpiredTimer !== null) {
-          SIP.Timers.clearTimeout(this.registrationExpiredTimer);
-          this.registrationExpiredTimer = null;
+        if (reqContext.registrationExpiredTimer !== null) {
+          clearTimeout(reqContext.registrationExpiredTimer);
+          reqContext.registrationExpiredTimer = null;
         }
         this.unregistered(response, null, registrationTag);
         break;

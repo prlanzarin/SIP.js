@@ -691,7 +691,9 @@ Session.prototype = {
         }
         break;
       case SIP.C.INFO:
-        if(this.status === C.STATUS_CONFIRMED || this.status === C.STATUS_WAITING_FOR_ACK) {
+        if(this.status === C.STATUS_CONFIRMED ||
+          this.status === C.STATUS_WAITING_FOR_ACK ||
+          this.status === C.STATUS_INVITE_SENT) {
           var body, tone, duration,
               contentType = request.getHeader('content-type'),
               reg_tone = /^(Signal\s*?=\s*?)([0-9A-D#*]{1})(\s)?.*/,

@@ -71,11 +71,12 @@ Transport.prototype = {
         callTag = parsedMsg.from_tag;
       }
       if (callId && callTag) {
-        let socket = this.sockets[callId + callTag];
+        const callIndex = `${callId}|${callTag}`;
+        let socket = this.sockets[callIndex]
         if (socket) {
           socket.write(message, (e) => {
             if (e) {
-              this.logger.warn('unable to send TCP message with error', e);
+              this.logger.warn(`unable to send TCP message with error ${e}`);
               return false;
             }
             if (this.ua.configuration.traceSip === true) {
@@ -169,14 +170,16 @@ Transport.prototype = {
     this.server = net.createServer((socket) => {
       socket.pendingSegments = [];
       socket.setKeepAlive(true);
-      socket.on('end', function() {
-        transport.onClose(socket);
+      socket.on('end', (e) => {
+        this.logger.log(`TCP socket ended for connection ${socket.callIndex || 'Unknown'}`);
+        transport.onClientSocketClose(socket, e);
       });
 
       const onSocketError = (e) => {
         this.logger.log("TCP socket returned error " + e + " and will close");
         if (socket.callIndex) {
-          //this.logger.log("TCP socket ended for connection" + socket.callIndex);
+          this.logger.log(`TCP socket ended for connection ${socket.callIndex}`);
+          transport.onClientSocketClose(socket, e);
           if (this.sockets[socket.callIndex]) {
             delete this.sockets[socket.callIndex];
           }
@@ -236,10 +239,26 @@ Transport.prototype = {
   */
   onClose: function(socket) {
     this.stopSendingKeepAlives();
+    this.ua.onTransportClosed(this);
     this.ua.emit('disconnected', {
       transport: this,
       code: "",
       reason: ""
+    });
+  },
+
+  /**
+  * @event
+  * @param {net.Socket} socket
+  * @param {event} e
+  */
+  onClientSocketClose: function(socket, e = {}) {
+    const callId = socket.callIndex? socket.callIndex.split('|')[0] : ''
+    this.ua.emit('sessionTransportDisconnected', {
+      transport: this,
+      callId,
+      code: e.code || '',
+      reason: e.message || ''
     });
   },
 
@@ -333,8 +352,9 @@ Transport.prototype = {
           switch (message.method) {
             case SIP.C.INVITE:
               if (this.sockets[message.call_id + message.from_tag] == null) {
-                socket.callIndex = message.call_id + message.from_tag;
-                this.sockets[message.call_id + message.from_tag] = socket;
+                const callIndex = `${message.call_id}|${message.from_tag}`;
+                socket.callIndex = callIndex;
+                this.sockets[callIndex] = socket;
               }
               break;
             default:

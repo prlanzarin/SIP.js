@@ -98,10 +98,10 @@ NonInviteClientTransaction.prototype.onTransportError = function() {
 };
 
 NonInviteClientTransaction.prototype.timer_F = function() {
-  this.logger.log('Timer F expired for non-INVITE client transaction ' + this.id);
-  this.stateChanged(C.STATUS_TERMINATED);
-  this.request_sender.ua.destroyTransaction(this);
-  this.request_sender.onRequestTimeout();
+  this.logger.log('[DISABLED] Timer F expired for non-INVITE client transaction ' + this.id);
+  //this.stateChanged(C.STATUS_TERMINATED);
+  //this.request_sender.ua.destroyTransaction(this);
+  //this.request_sender.onRequestTimeout();
 };
 
 NonInviteClientTransaction.prototype.timer_K = function() {

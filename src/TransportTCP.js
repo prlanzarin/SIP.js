@@ -283,8 +283,26 @@ Transport.prototype = {
     let pendingSegments;
     var messages = [], transaction;
 
+    // CRLFCRLF keep-alive request, send CRLF response
+    if (dataString == '\r\n\r\n' || dataString == '\n\r\n\r') {
+      this.logger.log('received TCP message with CRLFCRLF Keep Alive ping');
+      if (socket) {
+        return socket.write('\r\n', (e) => {
+          if (e) {
+            this.logger.warn(`unable to send keep-alive pong due to ${e}`);
+          }
+          if (this.ua.configuration.traceSip === true) {
+            this.logger.log('sent TCP Keep Alive pong');
+          }
+        });
+      } else {
+        this.logger.warn(`unable to send keep-alive pong because there is no socket`);
+	return;
+      }
+    }
+
     // CRLF Keep Alive response from server. Ignore it.
-    if(dataString === '\r\n') {
+    if(dataString === '\r\n' || dataString == '\n\r') {
       SIP.Timers.clearTimeout(this.keepAliveTimeout);
       this.keepAliveTimeout = null;
 

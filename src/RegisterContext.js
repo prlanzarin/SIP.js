@@ -352,6 +352,9 @@ RegisterContext.prototype.unregister = function(options) {
 RegisterContext.prototype.unregistered = function(response, cause, registrationTag) {
   this.registered = false;
   this.emit('unregistered', response || null, cause || null, registrationTag);
+  if (this.customClientContexts[registrationTag]) {
+    delete this.customClientContexts[registrationTag];
+  };
 };
 
 SIP.RegisterContext = RegisterContext;

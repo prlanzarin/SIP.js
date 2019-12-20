@@ -6,6 +6,7 @@ extend(exports, require('./environment_browser'));
 extend(exports, {
   TransportUDP: require('./TransportUDP'),
   TransportTCP: require('./TransportTCP'),
+  UnifiedTransport: require('./UnifiedTransport'),
   WebSocket: require('ws'),
   Socket: require('net').Socket,
   dgram: require('dgram'),

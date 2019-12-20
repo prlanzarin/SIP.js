@@ -367,6 +367,11 @@ UA.prototype.start = function() {
         break;
       case 'TCP':
         new SIP.TransportTCP(this, null);
+        this.logger.log("New TCP transport created");
+        break;
+      case 'FULL':
+        new SIP.UnifiedTransport(this, null);
+        this.logger.log("New UDP+TCP unified transport created");
         break;
       case 'WS':
         server = this.getNextWsServer();
@@ -941,7 +946,8 @@ UA.prototype.loadConfig = function(configuration) {
       }),
 
       transportType: 'WS',
-      viaPort: "5060"
+      viaPort: "5060",
+      udpMtu: 1300,
     };
 
   // Pre-Configuration
@@ -1068,61 +1074,45 @@ UA.prototype.loadConfig = function(configuration) {
     settings.contactTransport = 'wss';
   }
 
-  switch (settings.transportType) {
-    case 'UDP':
-      var port = 5060;
-      if(settings.uri.port) {
-        port = settings.uri.port;
-      }
-      settings.viaHost = settings.uri.host;
-      settings.viaPort = port;
-      this.contact = {
-        pub_gruu: null,
-        temp_gruu: null,
-        uri: new SIP.URI('sip', settings.uri.user, settings.publicIpAddress ||
-          settings.uri.host, port, {
-            transport: 'udp'
+  let initializeCustomTransport = (transport) => {
+    var port = 5060;
+    if(settings.uri.port) {
+      port = settings.uri.port;
+    }
+    settings.viaHost = settings.uri.host;
+    settings.viaPort = port;
+    this.contact = {
+      pub_gruu: null,
+      temp_gruu: null,
+      uri: new SIP.URI('sip', settings.uri.user, settings.publicIpAddress ||
+        settings.uri.host, port, {
+          transport,
         }),
-        toString: function(options) {
-          options = options || {};
-          var anonymous = options.anonymous || null,
+      toString: function(options) {
+        options = options || {};
+        var anonymous = options.anonymous || null,
           outbound = options.outbound || null,
           contact = '<' + this.uri.toString();
-          if (outbound) {
-            contact += ';ob';
-          }
-          contact += '>';
-          return contact;
+        if (outbound) {
+          contact += ';ob';
         }
-      };
-      break;
+        contact += '>';
+        return contact;
+      }
+    };
+  }
 
+
+  switch (settings.transportType) {
+    case 'FULL':
+      // unified mixin, will auto switch between udp and tcp, good stuff.
+      initializeCustomTransport('udp');
+      break;
+    case 'UDP':
+      initializeCustomTransport('udp');
+      break;
     case 'TCP':
-      var port = 5060;
-      if(settings.uri.port) {
-        port = settings.uri.port;
-      }
-      settings.viaHost = settings.uri.host;
-      settings.viaPort = port;
-      this.contact = {
-        pub_gruu: null,
-        temp_gruu: null,
-        uri: new SIP.URI('sip', settings.uri.user, settings.publicIpAddress ||
-          settings.uri.host, port, {
-            transport: 'tcp'
-        }),
-        toString: function(options) {
-          options = options || {};
-          var anonymous = options.anonymous || null,
-          outbound = options.outbound || null,
-          contact = '<' + this.uri.toString();
-          if (outbound) {
-            contact += ';ob';
-          }
-          contact += '>';
-          return contact;
-        }
-      };
+      initializeCustomTransport('tcp');
       break;
 
     default:
@@ -1241,6 +1231,7 @@ UA.configuration_skeleton = (function() {
       "viaPort",
       "publicIpAddress",
       "bindIpAddress",
+      "udpMtu",
 
       // Post-configuration generated parameters
       "via_core_value",
@@ -1703,6 +1694,12 @@ UA.configuration_check = {
     viaPort: function(viaPort) {
       if (typeof viaPort === 'string') {
         return viaPort;
+      }
+    },
+
+    udpMtu: function(udpMtu) {
+      if (typeof udpMtu === 'number') {
+        return udpMtu;
       }
     }
   }

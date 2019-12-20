@@ -54,6 +54,19 @@ Transport = function(ua, server) {
 };
 
 Transport.prototype = {
+  writeToSocket: function (socket, message, callback) {
+    socket.write(message, (e) => {
+      if (e) {
+        this.logger.warn(`unable to send TCP message with error ${e}\n\n${message}`);
+        return callback(error);
+      }
+      if (this.ua.configuration.traceSip === true) {
+        this.logger.log('sent TCP message:\n\n' + message + '\n');
+        return callback(null);
+      }
+    });
+  },
+
   /**
    * Send a message.
    * @param {SIP.OutgoingRequest|String} msg
@@ -62,11 +75,12 @@ Transport.prototype = {
   send: function(msg) {
     const message = msg.toString();
     const parsedMsg = SIP.Parser.parseMessage(message, this.ua);
-    if (message) {
+
+      if (message) {
       let callId = parsedMsg.call_id;
       let callTag;
-      if(msg instanceof SIP.OutgoingRequest) {
-        callTag = parsedMsg.to_tag;
+      if (msg instanceof SIP.OutgoingRequest) {
+        callTag = parsedMsg.to_tag || parsedMsg.from_tag;
       } else {
         callTag = parsedMsg.from_tag;
       }
@@ -74,22 +88,87 @@ Transport.prototype = {
         const callIndex = `${callId}|${callTag}`;
         let socket = this.sockets[callIndex]
         if (socket) {
-          socket.write(message, (e) => {
-            if (e) {
-              this.logger.warn(`unable to send TCP message with error ${e}`);
-              return false;
-            }
-            if (this.ua.configuration.traceSip === true) {
-              this.logger.log('sent TCP message:\n\n' + message + '\n');
-            }
+          this.writeToSocket(socket, message, (error) => {
+            if (error) return false;
           });
           return true;
         } else {
-          this.logger.warn('unable to send message, TCP socket does not exist');
-          return true;
+          // Outgoing request to new TCP conn. Open it, index and send.
+          if (msg instanceof SIP.OutgoingRequest) {
+            let { host, port } = this.fetchDestination(parsedMsg);
+            this.connectTo(host, port, (socket) => {
+              this.logger.warn(`New outbound TCP connection created to ${host}:${port} with callIndex ${callIndex}`);
+              this.onNewSocket(socket);
+              this.indexNewSocket(socket, callIndex);
+              this.tetherToSession(socket, parsedMsg);
+              this.writeToSocket(socket, message, (error) => {
+                if (error) return false;
+                return true;
+              });
+            });
+          } else {
+            this.logger.warn('unable to send message, TCP socket does not exist');
+            return false;
+          }
         }
+      } else {
+        this.logger.warn(`Either callId ${callId} or callTag ${callTag} isn't here, drop message\n\n${message}`);
+        return false;
+      }
+    } else {
+      this.logger.warn(`Not a valid message, drop it\n\n${message}`);
+      return false;
+
+    }
+  },
+
+  indexNewSocket: function(socket, callIndex) {
+    socket.callIndex = callIndex;
+    this.sockets[callIndex] = socket;
+  },
+
+  tetherToSession: function(socket, message) {
+    if (!socket.isTetheredToSession) {
+      let sessionToWatch = this.ua.findSession(message);
+      if (sessionToWatch) {
+        sessionToWatch.once('terminated', () => {
+          socket.end();
+        });
+        socket.isTetheredToSession = true;
       }
     }
+  },
+
+  fetchDestination: function (parsedMsg) {
+    let host, port;
+    // Route through the header instead of RURI if the Route header is present
+    let routeHdr = parsedMsg.getHeader('Route');
+    if(routeHdr !== undefined) {
+      // remove < and >
+      const route = routeHdr.replace('<', '').replace('>', '');
+      const routeUri = SIP.URI.parse(route);
+      host = routeUri.host;
+      port = routeUri.port || 5060;
+    } else {
+      if (!host) {
+        host = parsedMsg.ruri? parsedMsg.ruri.host : null;
+      }
+      if (!port) {
+        port = parsedMsg.ruri? parsedMsg.ruri.port : null;
+      }
+    }
+
+    if(!port && parsedMsg.from && parsedMsg.from.uri &&
+      parsedMsg.from.uri.port) {
+      port = parsedMsg.from.uri.port;
+    }
+
+    if(!host && parsedMsg.from && parsedMsg.from.uri &&
+      parsedMsg.from.uri.host) {
+      host = parsedMsg.from.uri.host;
+    }
+
+    return { host, port };
   },
 
   /**
@@ -158,55 +237,65 @@ Transport.prototype = {
     }
   },
 
+  connectTo: function (host, port, callback) {
+    const socket = net.createConnection({ host, port });
+    socket.once('connect', () => {
+      return callback(socket);
+    });
+  },
+
+  onNewSocket: function (socket) {
+    const transport = this;
+    socket.pendingSegmentsBuffer = new Buffer(0);
+    socket.setKeepAlive(true);
+    socket.on('end', (e) => {
+      if (this.sockets[socket.callIndex]) {
+        this.logger.log(`TCP socket ended for connection ${socket.callIndex || 'Unknown'}`);
+        transport.onClientSocketClose(socket, e);
+        delete this.sockets[socket.callIndex];
+      }
+    });
+
+    socket.on('close', (e) => {
+      if (this.sockets[socket.callIndex]) {
+        this.logger.log(`TCP socket closed for connection ${socket.callIndex || 'Unknown'}`);
+        transport.onClientSocketClose(socket, e);
+        delete this.sockets[socket.callIndex];
+      }
+    });
+
+    const onSocketError = (e) => {
+      this.logger.log("TCP socket returned error " + e + " and will close");
+      if (socket.callIndex) {
+        this.logger.log(`TCP socket errored for connection ${socket.callIndex}`);
+        transport.onClientSocketClose(socket, e);
+        socket.destroy();
+        if (this.sockets[socket.callIndex]) {
+          delete this.sockets[socket.callIndex];
+        }
+      }
+    }
+
+    socket.on('error', onSocketError.bind(this));
+
+    socket.on('data', function(data) {
+      transport.onMessage({
+        data,
+        socket
+      });
+    });
+  },
+
   /**
   * Connect socket.
   */
   connect: function() {
-    var transport = this;
+    const transport = this;
     this.logger.log('connecting to TCP server');
     this.ua.onTransportConnecting(this,
       (this.reconnection_attempts === 0)?1:this.reconnection_attempts);
 
-    this.server = net.createServer((socket) => {
-      socket.pendingSegmentsBuffer = new Buffer(0);
-      socket.setKeepAlive(true);
-      socket.on('end', (e) => {
-        if (this.sockets[socket.callIndex]) {
-          this.logger.log(`TCP socket ended for connection ${socket.callIndex || 'Unknown'}`);
-          transport.onClientSocketClose(socket, e);
-          delete this.sockets[socket.callIndex];
-        }
-      });
-
-      socket.on('close', (e) => {
-        if (this.sockets[socket.callIndex]) {
-          this.logger.log(`TCP socket closed for connection ${socket.callIndex || 'Unknown'}`);
-          transport.onClientSocketClose(socket, e);
-          delete this.sockets[socket.callIndex];
-        }
-      });
-
-      const onSocketError = (e) => {
-        this.logger.log("TCP socket returned error " + e + " and will close");
-        if (socket.callIndex) {
-          this.logger.log(`TCP socket errored for connection ${socket.callIndex}`);
-          transport.onClientSocketClose(socket, e);
-          socket.destroy();
-          if (this.sockets[socket.callIndex]) {
-            delete this.sockets[socket.callIndex];
-          }
-        }
-      }
-
-      socket.on('error', onSocketError.bind(this));
-
-      socket.on('data', function(data) {
-        transport.onMessage({
-          data,
-          socket
-        });
-      });
-    });
+    this.server = net.createServer(this.onNewSocket.bind(this));
 
     this.server.on('listening', () => {
       transport.connected = true;
@@ -391,17 +480,11 @@ Transport.prototype = {
             case SIP.C.INVITE:
               if (this.sockets[message.call_id + message.from_tag] == null) {
                 const callIndex = `${message.call_id}|${message.from_tag}`;
-                socket.callIndex = callIndex;
-                this.sockets[callIndex] = socket;
+                this.indexNewSocket(socket, callIndex);
                 // Get that socket, hook it up to the session termination
                 // to close it. Noice.
-                  let sessionToWatch = this.ua.findSession(message);
-                  if (sessionToWatch) {
-                    sessionToWatch.once('terminated', () => {
-                      socket.end();
-                    });
-                  }
               }
+              this.tetherToSession(socket, message);
               break;
             default:
               break;
@@ -414,7 +497,6 @@ Transport.prototype = {
            */
           switch(message.method) {
             case SIP.C.INVITE:
-
               transaction = this.ua.transactions.ict[message.via_branch];
               if(transaction) {
                 transaction.receiveResponse(message);

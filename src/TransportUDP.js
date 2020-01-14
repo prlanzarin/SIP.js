@@ -28,7 +28,6 @@ module.exports = function(SIP) {
     this.reconnection_attempts = 0;
     this.closed = false;
     this.connected = false;
-    this.reconnectTimer = null;
     this.lastTransportError = {};
 
     this.ua.transport = this;
@@ -39,87 +38,94 @@ module.exports = function(SIP) {
   };
 
   Transport.prototype = {
+    fetchDestination: function(parsedMsg) {
+      let host, port, callId, fromTag;
+      let routeHdr = parsedMsg.getHeader('Route');
+
+      // Route through the header instead of RURI if the Route header is present
+      if(routeHdr !== undefined) {
+        const route = routeHdr.replace('<', '').replace('>', '');
+        const routeUri = SIP.URI.parse(route);
+        host = routeUri.host;
+        port = routeUri.port || 5060;
+      } else {
+        if (parsedMsg) {
+          callId = parsedMsg.call_id;
+          fromTag = parsedMsg.from_tag;
+        }
+
+        if(callId && fromTag) {
+          var client = this.clients[callId + fromTag];
+          if (client) {
+            if (!host) {
+              host = client.address;
+            }
+
+            if (!port) {
+              port = client.port;
+            }
+          }
+        }
+
+        if (!host) {
+          host = parsedMsg.ruri? parsedMsg.ruri.host : null;
+        }
+        if (!port) {
+          port = parsedMsg.ruri? parsedMsg.ruri.port : null;
+        }
+      }
+
+      if(!port && parsedMsg.from && parsedMsg.from.uri &&
+        parsedMsg.from.uri.port) {
+        port = parsedMsg.from.uri.port;
+      }
+
+      if(!host && parsedMsg.from && parsedMsg.from.uri &&
+        parsedMsg.from.uri.host) {
+        host = parsedMsg.from.uri.host;
+      }
+
+      if (!port) {
+        this.logger.warn(`No inferred UDP port found, use default 5060`);
+        port = 5060;
+      }
+
+      return { host, port };
+    },
+
     /**
      * Send a message.
      * @param {SIP.OutgoingRequest|String} msg
      * @returns {Boolean}
      */
     send: function(msg) {
+      let callId = null, fromTag = null, parsedMsg;
 
-      var sendToHost = null, callId = null, fromTag = null, sendToPort = 5060,
-        parsedMsg;
+      parsedMsg = msg;
 
-      if(typeof msg === 'string') {
-        // parse message
-        parsedMsg = SIP.Parser.parseMessage(msg, this.ua);
-
+      if(typeof parsedMsg === 'string') {
+        parsedMsg = SIP.Parser.parseMessage(parsedMsg, this.ua);
         if(!parsedMsg) {
           return false;
         }
-
-      } else {
-
-        if(msg instanceof SIP.OutgoingRequest) {
-          // All outgoing requests have URIs...
-          // But if there is a Route header then we need to use that instead of the RURI
-
-          var routeHdr = msg.getHeader('Route');
-          if(routeHdr !== undefined) {
-            // remove < and >
-            var route = routeHdr.replace('<', '').replace('>', '');
-
-            var routeUri = SIP.URI.parse(route);
-            sendToHost = routeUri.host;
-            sendToPort = routeUri.port || 5060;
-          } else {
-            sendToHost = msg.ruri.host;
-            sendToPort = msg.ruri.port || 5060;
-          }
-
-        }
-
-        parsedMsg = msg.toString();
       }
 
-      if (parsedMsg) {
-        callId = parsedMsg.call_id;
-        fromTag = parsedMsg.from_tag;
-      }
-
-      if(callId && fromTag) {
-        var client = this.clients[callId + fromTag];
-        if (client) {
-          sendToHost = client.address;
-          sendToPort = client.port;
-        }
-      }
-
-      if(!sendToPort && parsedMsg.from && parsedMsg.from.uri &&
-        parsedMsg.from.uri.port) {
-        sendToPort = parsedMsg.from.uri.port;
-      }
-
-      if(!sendToHost && parsedMsg.from && parsedMsg.from.uri &&
-        parsedMsg.from.uri.host) {
-        sendToHost = parsedMsg.from.uri.host;
-      }
-
-      var parsedMsgToString = parsedMsg.toString();
+      const { host, port } = this.fetchDestination(parsedMsg);
+      const parsedMsgToString = parsedMsg.toString();
 
       if (this.ua.configuration.traceSip === true) {
-        this.logger.log('sending UDP message:\n\n' + parsedMsgToString + '\n');
+        this.logger.log(`Sending UDP message to ${host}:${port}\n\n` + parsedMsgToString + '\n');
       }
 
       var msgToSend = new Buffer(parsedMsgToString);
 
-      this.server.send(msgToSend, 0, msgToSend.length, sendToPort, sendToHost, function(err) {
+      this.server.send(msgToSend, 0, msgToSend.length, port, host, function(err) {
         if (err) {
-          console.log(err);
+          this.logger.warn(`Failed to send UPD message to ${host}:${port}, ${err.message}`);
         }
       });
 
       return true;
-
     },
 
     /**
@@ -150,7 +156,7 @@ module.exports = function(SIP) {
       });
 
       this.logger.log("UDP transport will listen into host:" + this.ua.configuration.bindIpAddress +
-          " port:" + this.ua.configuration.uri.port);
+        " port:" + this.ua.configuration.uri.port);
       this.server.bind(this.ua.configuration.uri.port, this.ua.configuration.bindIpAddress);
 
     },
@@ -210,7 +216,7 @@ module.exports = function(SIP) {
               if (!client) {
                 this.clients[message.call_id + message.from_tag] = remote;
               }
-            break;
+              break;
             case SIP.C.BYE:
               var client = this.clients[message.call_id + message.from_tag];
 
@@ -224,9 +230,9 @@ module.exports = function(SIP) {
                   });
                 }
               }
-            break;
+              break;
             default:
-            break;
+              break;
           }
 
           this.ua.receiveRequest(message);
@@ -254,7 +260,24 @@ module.exports = function(SIP) {
           }
         }
       }
-    }
+    },
+
+    /**
+     * Disconnect socket.
+     */
+    disconnect: function() {
+      if (this.server) {
+        this.closed = true;
+        this.logger.log('closing UDP transport');
+        this.server.close();
+      }
+
+      this.ua.emit('disconnected', {
+        transport: this,
+        code: this.lastTransportError.code,
+        reason: this.lastTransportError.reason
+      });
+    },
   };
 
   Transport.C = C;
